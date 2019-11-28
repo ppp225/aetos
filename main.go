@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -24,7 +25,52 @@ var (
 		})
 )
 
+var yml = `
+lightheus:
+  json: myjson.json
+  performance:
+    help: This is the lighthouse performance score
+    path: categories.performance.score
+  performance2:
+    help: This is the lighthouse performance score
+    path: categories.performance.score
+lightheus2:
+  json: myjson.json
+  performance:
+    help: This is the lighthouse performance score
+    path: categories.performance.score
+  performance2:
+    help: This is the lighthouse performance score
+    path: categories.performance.score
+`
+
+type Namespace = map[string]Config
+
+type Config struct {
+	Json        string
+	Performance Metric
+	Metrics     map[string]Metric
+}
+
+type Metric struct {
+	Help string
+	Path string
+}
+
+func unmarshalConfig() {
+	var cfg Namespace
+	if err := yaml.Unmarshal([]byte(yml), &cfg); err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("%+v", cfg)
+}
+
 func main() {
+	unmarshalConfig()
+	return
+	// server
+
 	http.Handle("/metrics/prometheus", promhttp.Handler())
 
 	prometheus.MustRegister(gauge)
