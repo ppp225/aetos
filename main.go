@@ -49,6 +49,7 @@ type file struct {
 type metric struct {
 	Help string `json:"help" validate:"required"`
 	Path string `json:"path" validate:"required"`
+	Type string `type:"path" validate:"len=0"` // not supported currently
 }
 
 func getConfig() *config {
