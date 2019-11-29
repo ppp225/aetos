@@ -1,101 +1,137 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
+	"reflect"
+	"strings"
 	"time"
 
+	"github.com/go-playground/validator"
+	"github.com/ppp225/unjson"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gopkg.in/yaml.v2"
 )
 
-const (
-	listenerAddress = "localhost:31337"
-)
-
-var (
-	// example https://sysdig.com/blog/prometheus-metrics/
-	gauge = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Namespace: "lightheus",
-			Name:      "test_gauge",
-			Help:      "This is a test gauge",
-		})
-)
+// example https://sysdig.com/blog/prometheus-metrics/
 
 var yml = `
+address: localhost:31337
 namespace:
   lightheus:
-    json: lighthouse.json
+    filepath: lighthouse.json
     metric:
       performance:
         help: This is the lighthouse performance score
         path: categories.performance.score
       pwa:
-        help: This is the lighthouse performance score
+        help: This is the lighthouse pwa score
         path: categories.pwa.score
   lightheus2:
-    json: myjson.json
+    filepath: lighthouse.json
     metric:
       performance:
         help: This is the lighthouse performance score
         path: categories.performance.score
 `
 
-type Config struct {
-	Namespace map[string]File
+type config struct {
+	Namespace map[string]file `json:"namespace" validate:"required,dive"`
+	Address   string          `json:"address" validate:"required"`
 }
-type File struct {
-	Json   string
-	Metric map[string]Metric
-}
-
-type Metric struct {
-	Help string
-	Path string
+type file struct {
+	FilePath string            `json:"filepath" validate:"required"`
+	Metric   map[string]metric `json:"metric" validate:"required,dive"`
 }
 
-func PrettyPrint(v interface{}) (err error) {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err == nil {
-		fmt.Println(string(b))
-	}
-	return
+type metric struct {
+	Help string `json:"help" validate:"required"`
+	Path string `json:"path" validate:"required"`
 }
-func unmarshalConfig() {
-	var cfg Config
+
+func getConfig() *config {
+	var cfg config
 	if err := yaml.Unmarshal([]byte(yml), &cfg); err != nil {
 		log.Fatal(err)
 	}
+	validateConfig(&cfg)
+	return &cfg
+}
 
-	PrettyPrint(cfg)
+func validateConfig(cfg *config) {
+	validate := validator.New()
+	validate.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+
+		if name == "-" {
+			return ""
+		}
+
+		return name
+	})
+
+	if err := validate.Struct(cfg); err != nil {
+		log.Fatal(err)
+	}
+}
+
+var (
+	namespaces = make([]namespace, 0)
+)
+
+type namespace struct {
+	Name     string
+	FilePath string
+	Gauges   []gauge
+}
+type gauge struct {
+	Gauge prometheus.Gauge
+	Path  string
+}
+
+func initialize(cfg *config) {
+	for nn, n := range cfg.Namespace {
+		spacex := namespace{Name: nn, FilePath: n.FilePath}
+		for mn, m := range n.Metric {
+			g := prometheus.NewGauge(
+				prometheus.GaugeOpts{
+					Namespace: nn,
+					Name:      mn,
+					Help:      m.Help,
+				})
+			prometheus.MustRegister(g)
+
+			gauge := gauge{
+				Gauge: g,
+				Path:  m.Path,
+			}
+			spacex.Gauges = append(spacex.Gauges, gauge)
+		}
+		namespaces = append(namespaces, spacex)
+	}
 }
 
 func main() {
-	unmarshalConfig()
-	return
-	// server
+	cfg := getConfig()
+	initialize(cfg)
 
 	http.Handle("/metrics/prometheus", promhttp.Handler())
 
-	prometheus.MustRegister(gauge)
-
-	rand.Seed(time.Now().Unix())
-
 	go func() {
 		for {
-			gauge.Add(rand.Float64()*15 - 5)
-			time.Sleep(time.Second)
+			for _, n := range namespaces {
+				data := unjson.LoadFile(n.FilePath)
+				for _, g := range n.Gauges {
+					value := unjson.Get(data, g.Path).(float64)
+					g.Gauge.Set(value)
+				}
+			}
+			time.Sleep(time.Second * 10)
 		}
 	}()
 
-	log.Fatal(http.ListenAndServe(listenerAddress, nil))
-}
-
-func handleStuff(w http.ResponseWriter, r *http.Request) {
-
+	fmt.Println("Starting listening on http://" + cfg.Address + "/metrics/prometheus")
+	log.Fatal(http.ListenAndServe(cfg.Address, nil))
 }
