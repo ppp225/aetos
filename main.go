@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
@@ -26,30 +28,30 @@ var (
 )
 
 var yml = `
-lightheus:
-  json: myjson.json
-  performance:
-    help: This is the lighthouse performance score
-    path: categories.performance.score
-  performance2:
-    help: This is the lighthouse performance score
-    path: categories.performance.score
-lightheus2:
-  json: myjson.json
-  performance:
-    help: This is the lighthouse performance score
-    path: categories.performance.score
-  performance2:
-    help: This is the lighthouse performance score
-    path: categories.performance.score
+namespace:
+  lightheus:
+    json: lighthouse.json
+    metric:
+      performance:
+        help: This is the lighthouse performance score
+        path: categories.performance.score
+      pwa:
+        help: This is the lighthouse performance score
+        path: categories.pwa.score
+  lightheus2:
+    json: myjson.json
+    metric:
+      performance:
+        help: This is the lighthouse performance score
+        path: categories.performance.score
 `
 
-type Namespace = map[string]Config
-
 type Config struct {
-	Json        string
-	Performance Metric
-	Metrics     map[string]Metric
+	Namespace map[string]File
+}
+type File struct {
+	Json   string
+	Metric map[string]Metric
 }
 
 type Metric struct {
@@ -57,13 +59,20 @@ type Metric struct {
 	Path string
 }
 
+func PrettyPrint(v interface{}) (err error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err == nil {
+		fmt.Println(string(b))
+	}
+	return
+}
 func unmarshalConfig() {
-	var cfg Namespace
+	var cfg Config
 	if err := yaml.Unmarshal([]byte(yml), &cfg); err != nil {
 		log.Fatal(err)
 	}
 
-	log.Printf("%+v", cfg)
+	PrettyPrint(cfg)
 }
 
 func main() {
