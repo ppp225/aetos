@@ -18,10 +18,14 @@ import (
 // example https://sysdig.com/blog/prometheus-metrics/
 
 var yml = `
-address: localhost:31337
+address: localhost:22596
 namespace:
   lightheus:
     filepath: lighthouse.json
+    labels:
+      host: test.com
+      path: /
+      strategy: mobile
     metric:
       performance:
         help: This is the lighthouse performance score
@@ -44,6 +48,7 @@ type config struct {
 type file struct {
 	FilePath string            `json:"filepath" validate:"required"`
 	Metric   map[string]metric `json:"metric" validate:"required,dive"`
+	Labels   map[string]string `json:"labels" validate:""`
 }
 
 type metric struct {
@@ -86,27 +91,33 @@ type namespace struct {
 	Name     string
 	FilePath string
 	Gauges   []gauge
+	Labels   prometheus.Labels
 }
 type gauge struct {
-	Gauge prometheus.Gauge
-	Path  string
+	GaugeVec *prometheus.GaugeVec
+	Path     string
 }
 
 func initialize(cfg *config) {
 	for nn, n := range cfg.Namespace {
-		spacex := namespace{Name: nn, FilePath: n.FilePath}
+		spacex := namespace{Name: nn, FilePath: n.FilePath, Labels: n.Labels}
 		for mn, m := range n.Metric {
-			g := prometheus.NewGauge(
+			labelKeys := make([]string, 0, len(n.Labels))
+			for k := range n.Labels {
+				labelKeys = append(labelKeys, k)
+			}
+			g := prometheus.NewGaugeVec(
 				prometheus.GaugeOpts{
 					Namespace: nn,
 					Name:      mn,
 					Help:      m.Help,
-				})
+				},
+				labelKeys)
 			prometheus.MustRegister(g)
 
 			gauge := gauge{
-				Gauge: g,
-				Path:  m.Path,
+				GaugeVec: g,
+				Path:     m.Path,
 			}
 			spacex.Gauges = append(spacex.Gauges, gauge)
 		}
@@ -126,7 +137,7 @@ func main() {
 				data := unjson.LoadFile(n.FilePath)
 				for _, g := range n.Gauges {
 					value := unjson.Get(data, g.Path).(float64)
-					g.Gauge.Set(value)
+					g.GaugeVec.With(n.Labels).Set(value)
 				}
 			}
 			time.Sleep(time.Second * 10)
