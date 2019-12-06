@@ -1,11 +1,15 @@
 package main
 
 import (
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/ppp225/go-common"
 
 	"github.com/go-playground/validator"
 	"github.com/ppp225/unjson"
@@ -16,67 +20,44 @@ import (
 
 // example https://sysdig.com/blog/prometheus-metrics/
 
-var yml = `
-address: localhost:22596
-namespace:
-  lightheus:
-    homepage:
-      filepath: lighthouse.json
-      labels:
-        host: test.com
-        path: /
-        strategy: mobile
-      metric:
-        performance:
-          help: This is the lighthouse performance score
-          path: categories.performance.score
-        pwa:
-          help: This is the lighthouse pwa score
-          path: categories.pwa.score
-    otherpage:
-      filepath: lighthouse.json
-      labels:
-        host: test.com
-        path: /other
-        strategy: mobile
-      metric:
-        performance:
-          help: This is the lighthouse performance score
-          path: categories.performance.score
-        pwa:
-          help: This is the lighthouse pwa score
-          path: categories.pwa.score
-  lightheus2:
-    stuff:
-      filepath: lighthouse.json
-      metric:
-        performance:
-          help: This is the lighthouse performance score
-          path: categories.performance.score
-`
-
 type config struct {
-	Namespace map[string]map[string]filegroup `json:"namespace" validate:"required"` // this double map encodes (namespace ->) lightheus -> group -> (group)
-	Address   string                          `json:"address" validate:"required"`
+	Groups  map[string]namespaceGroup `json:"groups" validate:"required,dive"`
+	Address string                    `json:"address" validate:"required"`
 }
 
-type filegroup struct {
-	FilePath string            `json:"filepath" validate:"required"`
-	Metric   map[string]metric `json:"metric" validate:"required,dive"`
-	Labels   map[string]string `json:"labels" validate:""`
+type namespaceGroup struct {
+	Namespace string            `json:"namespace" validate:"len=0"` // not supported currently, will allow overriding namespace name
+	Metrics   map[string]metric `json:"metrics" validate:"required,dive"`
+	Labels    map[string]string `json:"labels" validate:""`
+	Files     map[string]file   `json:"files" validate:"required,dive"`
 }
-
 type metric struct {
 	Help string `json:"help" validate:"required"`
 	Path string `json:"path" validate:"required"`
-	Type string `type:"path" validate:"len=0"` // not supported currently
+	Type string `type:"type" validate:"len=0"` // not supported currently
+}
+type file struct {
+	FilePath string            `json:"filepath" validate:"required"`
+	Labels   map[string]string `json:"labels" validate:""`
+}
+
+func loadFile(filename string) []byte {
+	file, err := os.Open(filename)
+	if err != nil {
+		panic(err)
+	}
+
+	bytes, _ := ioutil.ReadAll(file)
+	return bytes
 }
 
 func getConfig() *config {
+	ymlBytes := loadFile("config.yml")
 	var cfg config
-	if err := yaml.Unmarshal([]byte(yml), &cfg); err != nil {
+	if err := yaml.Unmarshal(ymlBytes, &cfg); err != nil {
 		log.Fatal(err)
 	}
+	common.PrettyPrint(cfg)
 	validateConfig(&cfg)
 	return &cfg
 }
@@ -95,13 +76,6 @@ func validateConfig(cfg *config) {
 
 	if err := validate.Struct(cfg); err != nil {
 		log.Fatal(err)
-	}
-	for _, n := range cfg.Namespace {
-		for _, g := range n {
-			if err := validate.Struct(g); err != nil {
-				log.Fatal(err)
-			}
-		}
 	}
 }
 
@@ -125,40 +99,40 @@ type gauge struct {
 }
 
 func initialize(cfg *config) {
-	for nn, n := range cfg.Namespace {
-		spacex := namespace{Name: nn}
-		for gn, g := range n {
-			groupx := group{Name: gn, FilePath: g.FilePath, Labels: g.Labels}
-			for mn, m := range g.Metric {
-				labelKeys := make([]string, 0, len(g.Labels))
-				for k := range g.Labels {
-					labelKeys = append(labelKeys, k)
-				}
-				promGauge := prometheus.NewGaugeVec(
-					prometheus.GaugeOpts{
-						Namespace: nn,
-						Name:      mn,
-						Help:      m.Help,
-					},
-					labelKeys,
-				)
+	// for nn, n := range cfg.Namespace {
+	// 	spacex := namespace{Name: nn}
+	// 	for gn, g := range n {
+	// 		groupx := group{Name: gn, FilePath: g.FilePath, Labels: g.Labels}
+	// 		for mn, m := range g.Metric {
+	// 			labelKeys := make([]string, 0, len(g.Labels))
+	// 			for k := range g.Labels {
+	// 				labelKeys = append(labelKeys, k)
+	// 			}
+	// 			promGauge := prometheus.NewGaugeVec(
+	// 				prometheus.GaugeOpts{
+	// 					Namespace: nn,
+	// 					Name:      mn,
+	// 					Help:      m.Help,
+	// 				},
+	// 				labelKeys,
+	// 			)
 
-				if err := prometheus.Register(promGauge); err != nil {
-					// log.Printf("duplicate gauge (expected) TODO: chage initializing logic name=%s_%s\n", nn, mn)
-					continue
-				}
-				log.Printf("registering gauge name=%s_%s\n", nn, mn)
+	// 			if err := prometheus.Register(promGauge); err != nil {
+	// 				// log.Printf("duplicate gauge (expected) TODO: chage initializing logic name=%s_%s\n", nn, mn)
+	// 				continue
+	// 			}
+	// 			log.Printf("registering gauge name=%s_%s\n", nn, mn)
 
-				gauge := gauge{
-					GaugeVec: promGauge,
-					Path:     m.Path,
-				}
-				spacex.Gauges = append(spacex.Gauges, gauge)
-			}
-			spacex.Groups = append(spacex.Groups, groupx)
-		}
-		namespaces = append(namespaces, spacex)
-	}
+	// 			gauge := gauge{
+	// 				GaugeVec: promGauge,
+	// 				Path:     m.Path,
+	// 			}
+	// 			spacex.Gauges = append(spacex.Gauges, gauge)
+	// 		}
+	// 		spacex.Groups = append(spacex.Groups, groupx)
+	// 	}
+	// 	namespaces = append(namespaces, spacex)
+	// }
 }
 
 func main() {

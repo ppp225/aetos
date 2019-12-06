@@ -1,0 +1,36 @@
+address: localhost:22596
+groups:
+  lightheus:
+    metrics:
+      performance:
+        help: This is the lighthouse performance score
+        path: categories.performance.score
+      pwa:
+        help: This is the lighthouse pwa score
+        path: categories.pwa.score
+    labels:
+      host: test.com
+    files:
+      homepage:
+        filepath: lighthouse.json
+        labels:
+          path: /
+          strategy: mobile
+      otherpage:
+        filepath: lighthouse.json
+        labels:
+          path: /other
+          strategy: mobile
+  lightheus2:
+    metrics:
+      accessibility:
+        help: This is the lighthouse accessibility score
+        path: categories.accessibility.score
+    labels:
+      host: test.com
+    files:
+      homepage:
+        filepath: lighthouse.json
+        labels:
+          path: /
+          strategy: mobile
