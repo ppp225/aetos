@@ -19,24 +19,25 @@ import (
 // example https://sysdig.com/blog/prometheus-metrics/
 
 type config struct {
-	Groups  map[string]namespaceGroup `json:"groups" validate:"required,dive"`
-	Address string                    `json:"address" validate:"required"`
+	Groups      map[string]namespaceGroup `yaml:"groups" validate:"required,dive"`
+	Address     string                    `yaml:"address" validate:"required"`
+	MetricsPath string                    `yaml:"metrics_path" validate:""`
 }
 
 type namespaceGroup struct {
-	Namespace string            `json:"namespace" validate:""` // allows overriding namespace name; default is group map key
-	Metrics   map[string]metric `json:"metrics" validate:"required,dive"`
-	Labels    map[string]string `json:"labels" validate:""`
-	Files     map[string]file   `json:"files" validate:"required,dive"`
+	Namespace string            `yaml:"namespace" validate:""` // allows overriding namespace name; default is group map key
+	Metrics   map[string]metric `yaml:"metrics" validate:"required,dive"`
+	Labels    map[string]string `yaml:"labels" validate:""`
+	Files     map[string]file   `yaml:"files" validate:"required,dive"`
 }
 type metric struct {
-	Help string `json:"help" validate:"required"`
-	Path string `json:"path" validate:"required"`
-	Type string `type:"type" validate:"len=0"` // not supported currently
+	Help string `yaml:"help" validate:"required"`
+	Path string `yaml:"path" validate:"required"`
+	Type string `yaml:"type" validate:"len=0"` // not supported currently
 }
 type file struct {
-	FilePath string            `json:"filepath" validate:"required"`
-	Labels   map[string]string `json:"labels" validate:""`
+	FilePath string            `yaml:"filepath" validate:"required"`
+	Labels   map[string]string `yaml:"labels" validate:""`
 }
 
 func loadFile(filename string) []byte {
@@ -49,8 +50,8 @@ func loadFile(filename string) []byte {
 	return bytes
 }
 
-func getConfig() *config {
-	ymlBytes := loadFile("config.yml")
+func getConfig(path string) *config {
+	ymlBytes := loadFile(path)
 	var cfg config
 	if err := yaml.Unmarshal(ymlBytes, &cfg); err != nil {
 		log.Fatal(err)
@@ -62,7 +63,7 @@ func getConfig() *config {
 func validateConfig(cfg *config) {
 	validate := validator.New()
 	validate.RegisterTagNameFunc(func(fld reflect.StructField) string {
-		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+		name := strings.SplitN(fld.Tag.Get("yaml"), ",", 2)[0]
 
 		if name == "-" {
 			return ""
@@ -143,10 +144,18 @@ func initialize(cfg *config) {
 }
 
 func main() {
-	cfg := getConfig()
+	cfg := getConfig("aetos.yml")
 	initialize(cfg)
 
-	http.Handle("/metrics/prometheus", promhttp.Handler())
+	metricsPath := "/metrics"
+	if len(cfg.MetricsPath) > 0 {
+		if cfg.MetricsPath[0] == '/' {
+			metricsPath = cfg.MetricsPath
+		} else {
+			metricsPath = "/" + cfg.MetricsPath
+		}
+	}
+	http.Handle(metricsPath, promhttp.Handler())
 
 	go func() {
 		for {
@@ -163,6 +172,6 @@ func main() {
 		}
 	}()
 
-	log.Println("Starting listening on http://" + cfg.Address + "/metrics/prometheus")
+	log.Println("Starting listening on http://" + cfg.Address + metricsPath)
 	log.Fatal(http.ListenAndServe(cfg.Address, nil))
 }
