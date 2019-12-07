@@ -76,10 +76,6 @@ func validateConfig(cfg *config) {
 	}
 }
 
-var (
-	namespaces = make([]namespace, 0)
-)
-
 type namespace struct {
 	Name   string
 	Groups []filegroup
@@ -95,7 +91,9 @@ type gauge struct {
 	Path     string
 }
 
-func initialize(cfg *config) {
+func initialize(cfg *config) []namespace {
+	namespaces := make([]namespace, 0)
+
 	for nn, n := range cfg.Groups {
 		// create namespace; (check name override)
 		if len(n.Namespace) > 0 {
@@ -140,21 +138,25 @@ func initialize(cfg *config) {
 		}
 		namespaces = append(namespaces, spacex)
 	}
+	return namespaces
 }
 
 // Aetos represents Aetos instance
 type Aetos struct {
-	cfg *config
+	cfg        *config
+	namespaces []namespace
+	debug      bool
 }
 
 // New creates new eagle
 func New(configPath string) *Aetos {
 	cfg := loadConfig(configPath)
 	validateConfig(cfg)
-	initialize(cfg)
+	ns := initialize(cfg)
 
 	return &Aetos{
-		cfg: cfg,
+		cfg:        cfg,
+		namespaces: ns,
 	}
 }
 
@@ -172,11 +174,16 @@ func NewBaseWithFiles(baseConfigPath string, files []File) *Aetos {
 		}
 	}
 	validateConfig(cfg)
-	initialize(cfg)
+	ns := initialize(cfg)
 
 	return &Aetos{
-		cfg: cfg,
+		cfg:        cfg,
+		namespaces: ns,
 	}
+}
+
+func (v *Aetos) Debug() {
+	v.debug = true
 }
 
 func (v *Aetos) Run() {
@@ -194,11 +201,14 @@ func (v *Aetos) Run() {
 
 	go func() {
 		for {
-			for _, n := range namespaces {
+			for _, n := range v.namespaces {
 				for _, g := range n.Groups {
 					data := unjson.LoadFile(g.FilePath)
 					for _, gauge := range n.Gauges {
 						value := unjson.Get(data, gauge.Path).(float64)
+						if v.debug {
+							log.Printf("aetos: updating gauge: file=%q gauge=%q value=\"%f\"", g.FilePath, gauge.Path, value)
+						}
 						gauge.GaugeVec.With(g.Labels).Set(value)
 					}
 				}
