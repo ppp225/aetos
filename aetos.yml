@@ -27,6 +27,9 @@ groups:
       accessibility:
         help: This is the lighthouse accessibility score
         path: categories.accessibility.score
+      best_practices:
+        help: lighthouse best-practices score
+        path: categories.best-practices.score
     labels:
       host: test.com
     files:

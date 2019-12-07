@@ -128,7 +128,7 @@ func initialize(cfg *config) {
 			)
 
 			if err := prometheus.Register(promGauge); err != nil {
-				log.Printf("ERROR: duplicate gauge, name=%s_%s\n", nn, mn)
+				log.Printf("ERROR: registering gauge failed, name=%s_%s, error=\n", nn, mn, err)
 				continue
 			}
 			log.Printf("registering gauge name=%s_%s\n", nn, mn)
@@ -143,9 +143,23 @@ func initialize(cfg *config) {
 	}
 }
 
-func main() {
+// Aetos represents Aetos instance
+type Aetos struct {
+	cfg *config
+}
+
+// New creates new eagle
+func New(configPath string) *Aetos {
 	cfg := getConfig("aetos.yml")
 	initialize(cfg)
+
+	return &Aetos{
+		cfg: cfg,
+	}
+}
+
+func (v *Aetos) Run() {
+	cfg := v.cfg
 
 	metricsPath := "/metrics"
 	if len(cfg.MetricsPath) > 0 {
@@ -174,4 +188,9 @@ func main() {
 
 	log.Println("Starting listening on http://" + cfg.Address + metricsPath)
 	log.Fatal(http.ListenAndServe(cfg.Address, nil))
+}
+
+func main() {
+	aetos := New("aetos.yml")
+	aetos.Run()
 }
