@@ -1,6 +1,6 @@
 address: localhost:22596
 groups:
-  lightheus:
+  aetos:
     metrics:
       performance:
         help: This is the lighthouse performance score
@@ -21,8 +21,8 @@ groups:
         labels:
           path: /other
           strategy: mobile
-  lightheus2:
-    namespace: lightheus
+  aetos2:
+    namespace: aetos
     metrics:
       accessibility:
         help: This is the lighthouse accessibility score

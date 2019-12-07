@@ -1,4 +1,4 @@
-package main
+package aetos
 
 import (
 	"io/ioutil"
@@ -19,23 +19,23 @@ import (
 // example https://sysdig.com/blog/prometheus-metrics/
 
 type config struct {
-	Groups      map[string]namespaceGroup `yaml:"groups" validate:"required,dive"`
-	Address     string                    `yaml:"address" validate:"required"`
-	MetricsPath string                    `yaml:"metrics_path" validate:""`
+	Groups      map[string]*namespaceGroup `yaml:"groups" validate:"required,dive"`
+	Address     string                     `yaml:"address" validate:"required"`
+	MetricsPath string                     `yaml:"metrics_path" validate:""`
 }
 
 type namespaceGroup struct {
-	Namespace string            `yaml:"namespace" validate:""` // allows overriding namespace name; default is group map key
-	Metrics   map[string]metric `yaml:"metrics" validate:"required,dive"`
-	Labels    map[string]string `yaml:"labels" validate:""`
-	Files     map[string]file   `yaml:"files" validate:"required,dive"`
+	Namespace string             `yaml:"namespace" validate:""` // allows overriding namespace name; default is group map key
+	Metrics   map[string]*metric `yaml:"metrics" validate:"required,dive"`
+	Labels    map[string]string  `yaml:"labels" validate:""`
+	Files     map[string]*File   `yaml:"files" validate:"required,dive"`
 }
 type metric struct {
 	Help string `yaml:"help" validate:"required"`
 	Path string `yaml:"path" validate:"required"`
 	Type string `yaml:"type" validate:"len=0"` // not supported currently
 }
-type file struct {
+type File struct {
 	FilePath string            `yaml:"filepath" validate:"required"`
 	Labels   map[string]string `yaml:"labels" validate:""`
 }
@@ -50,13 +50,12 @@ func loadFile(filename string) []byte {
 	return bytes
 }
 
-func getConfig(path string) *config {
+func loadConfig(path string) *config {
 	ymlBytes := loadFile(path)
 	var cfg config
 	if err := yaml.Unmarshal(ymlBytes, &cfg); err != nil {
 		log.Fatal(err)
 	}
-	validateConfig(&cfg)
 	return &cfg
 }
 
@@ -150,7 +149,29 @@ type Aetos struct {
 
 // New creates new eagle
 func New(configPath string) *Aetos {
-	cfg := getConfig("aetos.yml")
+	cfg := loadConfig(configPath)
+	validateConfig(cfg)
+	initialize(cfg)
+
+	return &Aetos{
+		cfg: cfg,
+	}
+}
+
+// NewBaseWithFiles creates new Aetos instance, but only single namespace group is allowed,
+// and files are supplied from external source
+func NewBaseWithFiles(baseConfigPath string, files []File) *Aetos {
+	cfg := loadConfig(baseConfigPath)
+	if len(cfg.Groups) != 1 {
+		log.Fatalln("Only single group supported in this initializer")
+	}
+	for k := range cfg.Groups {
+		cfg.Groups[k].Files = make(map[string]*File)
+		for _, f := range files {
+			cfg.Groups[k].Files[f.FilePath] = &f
+		}
+	}
+	validateConfig(cfg)
 	initialize(cfg)
 
 	return &Aetos{
@@ -188,9 +209,4 @@ func (v *Aetos) Run() {
 
 	log.Println("Starting listening on http://" + cfg.Address + metricsPath)
 	log.Fatal(http.ListenAndServe(cfg.Address, nil))
-}
-
-func main() {
-	aetos := New("aetos.yml")
-	aetos.Run()
 }
