@@ -25,10 +25,10 @@ type config struct {
 }
 
 type namespaceGroup struct {
-	Namespace string             `yaml:"namespace" validate:""` // allows overriding namespace name; default is group map key
-	Metrics   map[string]*metric `yaml:"metrics" validate:"required,dive"`
-	Labels    map[string]string  `yaml:"labels" validate:""`
-	Files     map[string]*File   `yaml:"files" validate:"required,dive"`
+	Namespace string            `yaml:"namespace" validate:""` // allows overriding namespace name; default is group map key
+	Metrics   map[string]metric `yaml:"metrics" validate:"required,dive"`
+	Labels    map[string]string `yaml:"labels" validate:""`
+	Files     map[string]File   `yaml:"files" validate:"required,dive"`
 }
 type metric struct {
 	Help string `yaml:"help" validate:"required"`
@@ -87,6 +87,7 @@ type filegroup struct {
 	Labels   prometheus.Labels
 }
 type gauge struct {
+	Name     string
 	GaugeVec *prometheus.GaugeVec
 	Path     string
 }
@@ -125,7 +126,7 @@ func initialize(cfg *config) []namespace {
 			)
 
 			if err := prometheus.Register(promGauge); err != nil {
-				log.Printf("ERROR: registering gauge failed, name=%s_%s, error=\n", nn, mn, err)
+				log.Printf("ERROR: registering gauge failed, name=\"%s_%s\", error=%q\n", nn, mn, err)
 				continue
 			}
 			log.Printf("registering gauge name=%s_%s\n", nn, mn)
@@ -133,6 +134,7 @@ func initialize(cfg *config) []namespace {
 			gauge := gauge{
 				GaugeVec: promGauge,
 				Path:     m.Path,
+				Name:     mn,
 			}
 			spacex.Gauges = append(spacex.Gauges, gauge)
 		}
@@ -168,9 +170,9 @@ func NewBaseWithFiles(baseConfigPath string, files []File) *Aetos {
 		log.Fatalln("Only single group supported in this initializer")
 	}
 	for k := range cfg.Groups {
-		cfg.Groups[k].Files = make(map[string]*File)
+		cfg.Groups[k].Files = make(map[string]File)
 		for _, f := range files {
-			cfg.Groups[k].Files[f.FilePath] = &f
+			cfg.Groups[k].Files[f.FilePath] = f
 		}
 	}
 	validateConfig(cfg)
@@ -207,7 +209,7 @@ func (v *Aetos) Run() {
 					for _, gauge := range n.Gauges {
 						value := unjson.Get(data, gauge.Path).(float64)
 						if v.debug {
-							log.Printf("aetos: updating gauge: file=%q gauge=%q value=\"%f\"", g.FilePath, gauge.Path, value)
+							log.Printf("aetos: updating gauge: gauge=\"%s_%s\" group=%q file=%q path=%q value=\"%f\" labels=%q\n", n.Name, gauge.Name, g.Name, g.FilePath, gauge.Path, value, g.Labels)
 						}
 						gauge.GaugeVec.With(g.Labels).Set(value)
 					}
