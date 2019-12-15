@@ -2,7 +2,6 @@ package aetos
 
 import (
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"reflect"
@@ -10,11 +9,14 @@ import (
 	"time"
 
 	"github.com/go-playground/validator"
+	log "github.com/ppp225/lvlog"
 	"github.com/ppp225/unjson"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gopkg.in/yaml.v2"
 )
+
+const pkg = "aetos"
 
 // example https://sysdig.com/blog/prometheus-metrics/
 
@@ -126,10 +128,10 @@ func initialize(cfg *config) []namespace {
 			)
 
 			if err := prometheus.Register(promGauge); err != nil {
-				log.Printf("ERROR: registering gauge failed, name=\"%s_%s\", error=%q\n", nn, mn, err)
+				log.Errorf("pkg=%s msg=%q, gauge=\"%s_%s\", error=%q\n", pkg, "registering gauge failed", nn, mn, err)
 				continue
 			}
-			log.Printf("registering gauge name=%s_%s\n", nn, mn)
+			log.Infof("pkg=%s msg=%q name=%s_%s\n", pkg, "registered gauge", nn, mn)
 
 			gauge := gauge{
 				GaugeVec: promGauge,
@@ -147,7 +149,6 @@ func initialize(cfg *config) []namespace {
 type Aetos struct {
 	cfg        *config
 	namespaces []namespace
-	debug      bool
 }
 
 // New creates new eagle
@@ -167,7 +168,7 @@ func New(configPath string) *Aetos {
 func NewBaseWithFiles(baseConfigPath string, files []File) *Aetos {
 	cfg := loadConfig(baseConfigPath)
 	if len(cfg.Groups) != 1 {
-		log.Fatalln("Only single group supported in this initializer")
+		log.Fatal("Only single group supported in this initializer")
 	}
 	for k := range cfg.Groups {
 		cfg.Groups[k].Files = make(map[string]File)
@@ -185,7 +186,7 @@ func NewBaseWithFiles(baseConfigPath string, files []File) *Aetos {
 }
 
 func (v *Aetos) Debug() {
-	v.debug = true
+	log.SetLevel(log.ALL)
 }
 
 func (v *Aetos) Run() {
@@ -207,10 +208,12 @@ func (v *Aetos) Run() {
 				for _, g := range n.Groups {
 					data := unjson.LoadFile(g.FilePath)
 					for _, gauge := range n.Gauges {
-						value := unjson.Get(data, gauge.Path).(float64)
-						if v.debug {
-							log.Printf("aetos: updating gauge: gauge=\"%s_%s\" group=%q file=%q path=%q value=\"%f\" labels=%q\n", n.Name, gauge.Name, g.Name, g.FilePath, gauge.Path, value, g.Labels)
+						value, ok := unjson.Get(data, gauge.Path).(float64)
+						if !ok {
+							log.Debugf("pkg=%s msg=%q json_path=%q\n", pkg, "couldn't parse json_path as float64, setting it to 0.0", gauge.Path)
+							value = 0.0
 						}
+						log.Tracef("pkg=%s msg=%q gauge=\"%s_%s\" group=%q file=%q path=%q value=\"%v\" labels=%q\n", pkg, "updating gauge", n.Name, gauge.Name, g.Name, g.FilePath, gauge.Path, value, g.Labels)
 						gauge.GaugeVec.With(g.Labels).Set(value)
 					}
 				}
@@ -219,6 +222,6 @@ func (v *Aetos) Run() {
 		}
 	}()
 
-	log.Println("Starting listening on http://" + cfg.Address + metricsPath)
-	log.Fatal(http.ListenAndServe(cfg.Address, nil))
+	log.Infof("pkg=%s msg=\"Starting listening on http://%s%s\"\n", pkg, cfg.Address, metricsPath)
+	log.Fatal("pkg=aetos", http.ListenAndServe(cfg.Address, nil))
 }
